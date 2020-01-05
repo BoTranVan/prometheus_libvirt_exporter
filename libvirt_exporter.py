@@ -15,6 +15,8 @@ args = vars(parser.parse_args())
 uri = args["uniform_resource_identifier"]
 
 last_values = {}
+last_timescrape = {}
+time_delta_from_last_scrape = {}
 
 def connect_to_uri(uri):
     conn = libvirt.open(uri)
@@ -43,17 +45,6 @@ def get_domains(conn):
         return None
     else:
         return domains
-
-
-def get_labels(dom):
-    tree = ElementTree.fromstring(dom.XMLDesc())
-
-    ns = {'nova': 'http://openstack.org/xmlns/libvirt/nova/1.0'}
-
-    instance_name = tree.find('metadata').find('nova:instance', ns).find('nova:name', ns).text
-
-    labels = {'domain':dom.UUIDString() + '_' + instance_name}
-    return labels
 
 
 def get_metrics_collections(metric_names, labels, stats):
@@ -99,12 +90,24 @@ def get_metrics_multidim_collections(dom, metric_names, device):
     return metrics_collection
 
 
-def custom_derivative(new, time_delta=True, interval=15,
+def get_labels(dom):
+    tree = ElementTree.fromstring(dom.XMLDesc())
+
+    ns = {'nova': 'http://openstack.org/xmlns/libvirt/nova/1.0'}
+
+    instance_name = tree.find('metadata').find('nova:instance', ns).find('nova:name', ns).text
+
+    labels = {'domain':dom.UUIDString() + '_' + instance_name}
+    return labels
+
+
+def custom_derivative(new, time_delta=True, interval=args["scrape_interval"],
                       allow_negative=False, instance=None):
     """
     Calculate the derivative of the metric.
     """
     # Format Metric Path
+    global time_delta_from_last_scrape
     path = instance
 
     if path in last_values:
@@ -124,8 +127,8 @@ def custom_derivative(new, time_delta=True, interval=15,
             interval = float(interval)
 
         # Get Change in Y (time)
-        if time_delta:
-            derivative_y = interval
+        if time_delta and time_delta_from_last_scrape[path] != 0:
+            derivative_y = time_delta_from_last_scrape[path]
         else:
             derivative_y = 1
 
@@ -148,6 +151,11 @@ def add_metrics(dom, header_mn, g_dict):
     if header_mn == "libvirt_cpu_stats_":
 
         vcpus = dom.getCPUStats(True, 0)
+
+        instance_id = dom.UUIDString()
+        time_delta_from_last_scrape[instance_id] = (time.time() - last_timescrape[instance_id]) if (instance_id in last_timescrape) else 0
+        last_timescrape[instance_id] = time.time()
+
         totalcpu = 0
         for vcpu in vcpus:
             cputime = vcpu['cpu_time']
@@ -155,6 +163,7 @@ def add_metrics(dom, header_mn, g_dict):
 
         value = float(totalcpu / len(dom.vcpus()[0])) / 10000000.0
         cpu_percent = custom_derivative(new=value, instance=dom.UUIDString())
+        cpu_percent = min([cpu_percent, 100])
         # metric_names = stats[0].keys()
         stats = [{'cpu_used': cpu_percent}]
         metric_names = ['cpu_used']
