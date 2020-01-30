@@ -97,7 +97,7 @@ def get_labels(dom):
 
     instance_name = tree.find('metadata').find('nova:instance', ns).find('nova:name', ns).text
 
-    labels = {'domain':dom.UUIDString() + '_' + instance_name}
+    labels = {'domain':dom.UUIDString(), 'name': instance_name}
     return labels
 
 
