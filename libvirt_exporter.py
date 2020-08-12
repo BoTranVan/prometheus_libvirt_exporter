@@ -149,8 +149,10 @@ def add_metrics(dom, header_mn, g_dict):
     labels = get_labels(dom)
 
     if header_mn == "libvirt_cpu_stats_":
-
-        vcpus = dom.getCPUStats(True, 0)
+        try:
+            vcpus = dom.getCPUStats(True, 0)
+        except:
+            return g_dict
 
         instance_id = dom.UUIDString()
         time_delta_from_last_scrape[instance_id] = (time.time() - last_timescrape[instance_id]) if (instance_id in last_timescrape) else 0
